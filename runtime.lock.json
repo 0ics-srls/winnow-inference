@@ -33,6 +33,10 @@
     {
       "file": "patches/llama-e2b-mtp-shape.patch",
       "sha256": "47e85e9bff800e1c46934f70bc65571c372ea6d170b06a9a3fad57ac9a955bb0"
+    },
+    {
+      "file": "patches/llama-logprob-token-ids.patch",
+      "sha256": "26a4092df423b6eb19c2c637ee1afcdc0ddef89958b7fcf02dcf66ed37656d14"
     }
   ],
   "source_sha256": {
@@ -45,12 +49,14 @@
     "src/llama-kv-cache-iswa.h": "cb0919cce0603a301eaa5af2ede1560e2857320f710004ddaed4adf5725a2925",
     "src/llama-model.cpp": "1cc729d55ae47088698035c561af4286fee8c5a0be6a7261d6591042809369cb",
     "src/models/gemma4.cpp": "07a2043ea44e4519571b7b834a99b3ee8b0b20770fab81eec660045ea804c02b",
-    "tools/server/server-context.cpp": "f6d4969f2700b1c3f013527b1c0aab91a6d50649c2806533afe98de5d48fa081",
+    "tools/server/server-context.cpp": "42e1da1bbcd64b2e3685830f2e4e2f358a1c5f3cce89828799c92fe6d3c75a88",
     "tools/server/server-context.h": "d38e35c35bdd49ea68297df14ea45d76248c53391a9197cf71b851fec21a4da0",
     "tools/server/server-queue.h": "e81f797badec67f1791de42d9d44a7f4e6bcc79c1eaf46a9477238fd0bc709f9",
-    "tools/server/server-task.h": "18696e08937ef0346f3608c8dad5f955aa35a6d1814dbc5e94119b220528697b",
+    "tools/server/server-task.h": "c5262e34c66b94101bf3f17f8343c3231b2d2a64f0afc0fc9b150f8048d09f34",
     "tools/server/server.cpp": "28f393fe924ae24fa7d32818ed767fabe5bd231cef814b5a71c10698bf66da7e",
     "common/speculative.cpp": "cc284aa860f094eb939c74baa377fbb9468360aa7df12dc79318369378f634ba",
-    "common/arg.cpp": "f23a61910fc7fbb688824b4fd4ecea8a21ae4c3bed0954867227ca4e090f5daa"
+    "common/arg.cpp": "f23a61910fc7fbb688824b4fd4ecea8a21ae4c3bed0954867227ca4e090f5daa",
+    "tools/server/server-schema.cpp": "4ad33863d8f52942a261e4e757d3c33c949247f9f2617c1ec9171a62bdf2fda5",
+    "tools/server/server-task.cpp": "bfe4fc96892d50adce9bc9b75fc935c5746861cb90a5c6692de441b7920cff13"
   }
 }

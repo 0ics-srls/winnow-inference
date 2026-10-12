@@ -1,0 +1,27 @@
+# Winnow runtime for a Tesla V100 (sm_70) + RTX 4090 (sm_89) host: CUDA 12.8, the last toolkit line that still
+# targets Volta (CUDA 13 dropped sm_70). Same pinned llama.cpp and patches as the release Dockerfile, plus
+# patches/llama-logprob-token-ids.patch (exact log-probabilities of requested tokens on /completion).
+#
+#   docker build -f Dockerfile.ubuntu-ai -t ubuntu-ai/winnow-0ics:cuda12.8 .
+#
+# The image keeps the build tree: bin/winnow-server (llama-server with /v1/systemone), bin/llama-quantize, and the
+# llama.cpp source with convert_hf_to_gguf.py for GGUF conversion.
+FROM nvidia/cuda:12.8.1-devel-ubuntu24.04
+ARG CUDA_ARCH="70;89"
+ARG BUILD_JOBS=12
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake git python3 python3-pip python3-venv ca-certificates libssl-dev curl \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY CMakeLists.txt runtime.lock.json /app/
+COPY native /app/native
+COPY patches /app/patches
+COPY tests /app/tests
+COPY scripts /app/scripts
+COPY manifests /app/manifests
+COPY examples /app/examples
+RUN python3 scripts/build.py --jobs "${BUILD_JOBS}" --cuda-arch "${CUDA_ARCH}" \
+    && cmake --build .build --target llama-quantize -j "${BUILD_JOBS}" \
+    && ls -la .build/bin
+ENV PATH="/app/.build/bin:${PATH}"
+EXPOSE 8091

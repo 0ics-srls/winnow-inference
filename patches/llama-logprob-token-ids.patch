@@ -1,0 +1,112 @@
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -2067,6 +2067,35 @@
+                     cur[i].p
+                 });
+             }
++
++            // exact log-probabilities of the requested tokens over the full vocabulary (logprob_token_ids)
++            const auto & want = slot.task->params.logprob_token_ids;
++            if (!want.empty()) {
++                const float       * logits      = llama_get_logits_ith(ctx_tgt, idx);
++                const llama_token * sampled_ids = llama_get_sampled_candidates_ith(ctx_tgt, idx);
++                const int           n_logits    = llama_get_sampled_logits_count_ith(ctx_tgt, idx);
++                float max_logit = -INFINITY;
++                for (int i = 0; i < n_logits; i++) {
++                    max_logit = std::max(max_logit, logits[i]);
++                }
++                double sum = 0.0;
++                for (int i = 0; i < n_logits; i++) {
++                    sum += std::exp((double) logits[i] - max_logit);
++                }
++                const double lse = max_logit + std::log(sum);
++                result.id_logprobs.reserve(want.size());
++                for (const llama_token tok : want) {
++                    int pos = -1;
++                    if (sampled_ids) {
++                        for (int i = 0; i < n_logits; i++) {
++                            if (sampled_ids[i] == tok) { pos = i; break; }
++                        }
++                    } else if (tok < n_logits) {
++                        pos = tok;
++                    }
++                    result.id_logprobs.push_back(pos < 0 ? -1e30f : (float) ((double) logits[pos] - lse));
++                }
++            }
+         }
+     }
+ 
+--- a/tools/server/server-schema.cpp
++++ b/tools/server/server-schema.cpp
+@@ -472,6 +472,28 @@
+             }
+         }));
+ 
++    add((new field_json("logprob_token_ids"))
++        ->set_desc("Return the exact full-vocabulary log-probabilities of these token ids at each generated position (as vLLM's logprob_token_ids; needs n_probs > 0 and post_sampling_probs false)")
++        ->set_handler([&](field_eval_context & ctx, const json & data) {
++            GGML_ASSERT(ctx.vocab != nullptr);
++            ctx.params.logprob_token_ids.clear();
++            const auto & ids = data.at("logprob_token_ids");
++            if (!ids.is_array()) {
++                throw std::invalid_argument("logprob_token_ids must be an array of token ids");
++            }
++            const int n_vocab = llama_vocab_n_tokens(ctx.vocab);
++            for (const auto & el : ids) {
++                if (!el.is_number_integer()) {
++                    throw std::invalid_argument("logprob_token_ids must be an array of token ids");
++                }
++                const llama_token tok = el.get<llama_token>();
++                if (tok < 0 || tok >= n_vocab) {
++                    throw std::invalid_argument("logprob_token_ids: token id out of range");
++                }
++                ctx.params.logprob_token_ids.push_back(tok);
++            }
++        }));
++
+     add((new field_bool("ignore_eos", params.sampling.ignore_eos))
+         ->set_desc("Ignore the end-of-sequence token and continue generating")
+         ->set_handler([&](field_eval_context & ctx, const json & data) {
+--- a/tools/server/server-task.cpp
++++ b/tools/server/server-task.cpp
+@@ -284,7 +284,7 @@
+     for (const auto & p : probs) {
+         std::string txt(p.text_to_send);
+         txt.resize(validate_utf8(txt));
+-        out.push_back(json {
++        json entry {
+             {"id",           p.tok},
+             {"token",        txt},
+             {"bytes",        str_to_bytes(p.text_to_send)},
+@@ -296,7 +296,11 @@
+                 post_sampling_probs ? "top_probs" : "top_logprobs",
+                 p.to_json(post_sampling_probs)
+             },
+-        });
++        };
++        if (!p.id_logprobs.empty()) {
++            entry["id_logprobs"] = p.id_logprobs;
++        }
++        out.push_back(std::move(entry));
+     }
+     return out;
+ }
+--- a/tools/server/server-task.h
++++ b/tools/server/server-task.h
+@@ -77,6 +77,8 @@
+     bool timings_per_token   = false;
+     bool post_sampling_probs = false;
+ 
++    std::vector<llama_token> logprob_token_ids; // exact log-probabilities of these tokens at each generated position
++
+     struct common_params_sampling sampling;
+     struct common_params_speculative speculative;
+ 
+@@ -309,6 +311,7 @@
+         float prob;
+     };
+     std::vector<prob_info> probs;
++    std::vector<float> id_logprobs; // one per task_params::logprob_token_ids, in request order
+ 
+     json to_json(bool post_sampling_probs) const;
+ 
