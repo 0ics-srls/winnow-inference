@@ -23,6 +23,13 @@ COPY tests /app/tests
 COPY scripts /app/scripts
 COPY manifests /app/manifests
 COPY examples /app/examples
+# only the pinned commit of llama.cpp: build.py clones the whole history (--filter=blob:none), a transfer of ~10 minutes
+# that got cut twice (curl 92, HTTP/2 stream CANCEL); finding the checkout, build.py checks HEAD against the lock
+RUN commit=$(python3 -c 'import json; print(json.load(open("runtime.lock.json"))["commit"])') \
+    && repo=$(python3 -c 'import json; print(json.load(open("runtime.lock.json"))["repository"])') \
+    && git init -q .runtime/llama.cpp \
+    && git -C .runtime/llama.cpp fetch -q --depth 1 "$repo" "$commit" \
+    && git -C .runtime/llama.cpp -c advice.detachedHead=false checkout -q --detach FETCH_HEAD
 RUN python3 scripts/build.py --jobs "${BUILD_JOBS}" --cuda-arch "${CUDA_ARCH}" \
     && cmake --build .build --target llama-quantize -j "${BUILD_JOBS}" \
     && ls -la .build/bin
