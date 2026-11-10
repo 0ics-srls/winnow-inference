@@ -24,6 +24,9 @@
 !examples/**
 !manifests/
 !manifests/**
+# 0ics: the deciders' image (Dockerfile.decisori)
+!decisori/
+!decisori/**
 **/.env
 **/.env.*
 **/__pycache__
