@@ -1,0 +1,67 @@
+# 0ics: the release images of the V100 + RTX 4090 build (branch v100-4090), only from a tag `v<version>-0ics.N` on that
+# branch. Two images, in order: the engine (Dockerfile.ubuntu-ai: winnow-server for sm_70 + sm_89 with the
+# logprob_token_ids patch, winnow-unit run by scripts/build.py), then the deciders on top of it (Dockerfile.decisori).
+# Published as ghcr.io/0ics-srls/winnow-0ics:<tag> and ghcr.io/0ics-srls/decisori:<tag>; ubuntu-ai only pulls them.
+name: rilascio-0ics
+
+on:
+  push:
+    tags: ["v*-0ics.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rilascio-0ics-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  MOTORE: ghcr.io/0ics-srls/winnow-0ics
+  DECISORI: ghcr.io/0ics-srls/decisori
+
+jobs:
+  immagini:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Il tag sta sul ramo v100-4090
+        run: |
+          git fetch --no-tags origin +refs/heads/v100-4090:refs/remotes/origin/v100-4090
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/v100-4090
+      # two CUDA images (devel to compile, runtime underneath) and the deciders' Python stack
+      - name: Spazio sul disco
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Motore
+        run: |
+          docker build --progress=plain -f Dockerfile.ubuntu-ai --build-arg BUILD_JOBS="$(nproc)" \
+            --label "org.opencontainers.image.source=https://github.com/0ics-srls/winnow-inference" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            -t "$MOTORE:$GITHUB_REF_NAME" .
+          docker run --rm --entrypoint sh "$MOTORE:$GITHUB_REF_NAME" -c \
+            'grep -c -a logprob_token_ids /app/.build/bin/winnow-server && python3 /app/scripts/serve.py --help > /dev/null'
+      - name: Decisori
+        run: |
+          docker build --progress=plain -f Dockerfile.decisori --build-arg MOTORE="$MOTORE:$GITHUB_REF_NAME" \
+            --label "org.opencontainers.image.source=https://github.com/0ics-srls/winnow-inference" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            -t "$DECISORI:$GITHUB_REF_NAME" .
+          docker run --rm --entrypoint sh "$DECISORI:$GITHUB_REF_NAME" -c \
+            'python3 -c "import torch, transformers, fastapi, uvicorn, gguf" && python3 -m py_compile /opt/decisori/*.py && python3 /app/.runtime/llama.cpp/convert_hf_to_gguf.py --help > /dev/null && bash -n /opt/decisori/dentro.sh'
+      # pushed only once both are built and checked: never a deciders' image without its engine
+      - name: Pubblica
+        run: |
+          docker push -q "$MOTORE:$GITHUB_REF_NAME"
+          docker push -q "$DECISORI:$GITHUB_REF_NAME"
