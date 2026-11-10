@@ -2,15 +2,18 @@
 # targets Volta (CUDA 13 dropped sm_70). Same pinned llama.cpp and patches as the release Dockerfile, plus
 # patches/llama-logprob-token-ids.patch (exact log-probabilities of requested tokens on /completion).
 #
-#   docker build -f Dockerfile.ubuntu-ai -t ubuntu-ai/winnow-0ics:cuda12.8 .
+#   docker build -f Dockerfile.ubuntu-ai -t winnow-0ics:local .
 #
-# The image keeps the build tree: bin/winnow-server (llama-server with /v1/systemone), bin/llama-quantize, and the
-# llama.cpp source with convert_hf_to_gguf.py for GGUF conversion.
-FROM nvidia/cuda:12.8.1-devel-ubuntu24.04
+# Two stages from NVIDIA's official CUDA 12.8 images: `build` compiles on the devel image (scripts/build.py also runs the
+# winnow-unit test); the final image, on the runtime one, keeps what runs: bin/winnow-server (llama-server with
+# /v1/systemone), bin/llama-quantize, scripts/ + manifests/ for scripts/serve.py, and the llama.cpp source with
+# convert_hf_to_gguf.py and gguf-py for GGUF conversion. The libraries are static (CMakeLists.txt): the binaries need
+# only the CUDA runtime libraries, OpenSSL and libgomp. Dockerfile.decisori builds the deciders' image on top of this.
+FROM nvidia/cuda:12.8.1-devel-ubuntu24.04 AS build
 ARG CUDA_ARCH="70;89"
 ARG BUILD_JOBS=12
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake git python3 python3-pip python3-venv ca-certificates libssl-dev curl \
+    build-essential cmake git python3 ca-certificates libssl-dev curl \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY CMakeLists.txt runtime.lock.json /app/
@@ -23,5 +26,20 @@ COPY examples /app/examples
 RUN python3 scripts/build.py --jobs "${BUILD_JOBS}" --cuda-arch "${CUDA_ARCH}" \
     && cmake --build .build --target llama-quantize -j "${BUILD_JOBS}" \
     && ls -la .build/bin
+# the pinned llama.cpp checkout: its source is needed (converter, gguf-py), its git history is not
+RUN rm -rf .runtime/llama.cpp/.git
+
+# --- final image: CUDA runtime libraries, python3 and curl for serve.py and the deciders, no toolchain
+FROM nvidia/cuda:12.8.1-runtime-ubuntu24.04
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl libgomp1 libssl3t64 python3 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=build /app/CMakeLists.txt /app/runtime.lock.json /app/
+COPY --from=build /app/scripts /app/scripts
+COPY --from=build /app/manifests /app/manifests
+COPY --from=build /app/examples /app/examples
+COPY --from=build /app/.runtime/llama.cpp /app/.runtime/llama.cpp
+COPY --from=build /app/.build/bin /app/.build/bin
 ENV PATH="/app/.build/bin:${PATH}"
 EXPOSE 8091

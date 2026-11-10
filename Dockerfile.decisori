@@ -1,0 +1,23 @@
+# The deciders on ubuntu-ai (decider-4b, H2O-Lightning-4B, Winnow-12B and their hub): the engine image built from
+# Dockerfile.ubuntu-ai, the authors' servers with only the engine call replaced (decisori/adattatori/), dentro.sh (one
+# decider inside its container) and the GGUF conversion tools. The machine-side scripts (avvia.sh started by llama-swap,
+# scarica.sh, verifica.py, converti.sh, quantizza.sh, banco.sh) travel in the image too, under /opt/decisori/macchina.
+#
+#   docker build -f Dockerfile.decisori --build-arg MOTORE=winnow-0ics:local -t decisori-0ics:local .
+ARG MOTORE
+FROM ${MOTORE}
+
+# conversion to GGUF (llama.cpp's requirements, CPU-only torch) and the authors' servers (fastapi, uvicorn, tokenizers)
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pip && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir --break-system-packages --extra-index-url https://download.pytorch.org/whl/cpu \
+        torch==2.11.0 numpy~=2.2.6 "sentencepiece>=0.1.98,<0.3.0" transformers==4.57.6 "protobuf>=4.21.0,<5.0.0" \
+        "fastapi>=0.115,<1" "uvicorn>=0.34,<1" "pydantic>=2,<3" "tokenizers>=0.21,<0.24" "scipy>=1.15,<2" \
+        "jinja2>=3.1.6,<4" "safetensors>=0.5,<1" huggingface_hub \
+    && pip3 install --no-cache-dir --break-system-packages --no-deps -e /app/.runtime/llama.cpp/gguf-py
+ENV PYTHONPATH=/opt/decisori
+
+COPY decisori/adattatori /opt/decisori
+COPY --chmod=755 decisori/dentro.sh /opt/decisori/dentro.sh
+COPY --chmod=755 decisori/avvia.sh decisori/scarica.sh decisori/converti.sh decisori/quantizza.sh decisori/banco.sh \
+     decisori/verifica.py /opt/decisori/macchina/
+WORKDIR /opt/decisori
